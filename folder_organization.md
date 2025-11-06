@@ -1,10 +1,11 @@
 Quadruped_EE579/
 ├─ firmware/
 │  ├─ arduino/
-│  │  ├ main.ino           # main loop (CPG, IMU, FSR gating, servo writes)
-│  │  │  ├─ cpg.h                   # tiny Hopf-style oscillator (lite)
-│  │  │  ├─ ids.h                   # servo IDs, pins, constants
-│  │  │  └─ utils.h                 # helpers (clamp, deg↔rad)
+│  │  └─ main/
+        ├─ main.ino           # main loop (CPG, IMU, FSR gating, servo writes)
+│  │  ├─ cpg.h                   # tiny Hopf-style oscillator (lite)
+│  │  ├─ ids.h                   # servo IDs, pins, constants
+│  │  └─ utils.h                 # helpers (clamp, deg↔rad)
 │  │  └─ README.md                  # board/libraries + upload notes
 │  └─ scripts/                      # Python log parser, gait generator, etc.
 ├─ hardware/
