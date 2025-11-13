@@ -9,7 +9,7 @@
 
 // ---------- Globals ---------- 
 DynamixelShield dxl; 
-Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x2--); // 0x28 or 0x29 
+Adafruit_BNO055 bno = Adafruit_BNO055(55); // 0x28 or 0x29 
 TrotCPG cpg; 
 
 unsigned long lastMicros = 0; 
@@ -46,24 +46,27 @@ void enableTorqueAll(bool on=true) {
   }
 }
 
-// read FSRs
-void updateFSR() {
-  contactLF = analogRead(PIN_FSR_LF) > FSR_CONTACT_THRESH; 
-  contactRF = analogRead(PIN_FSR_RF) > FSR_CONTACT_THRESH; 
-  contactLR = analogRead(PIN_FSR_LR) > FSR_CONTACT_THRESH; 
-  contactRR = analogRead(PIN_FSR_RR) > FSR_CONTACT_THRESH; 
-}
+// // read FSRs
+// void updateFSR() {
+//   contactLF = analogRead(PIN_FSR_LF) > FSR_CONTACT_THRESH; 
+//   contactRF = analogRead(PIN_FSR_RF) > FSR_CONTACT_THRESH; 
+//   contactLR = analogRead(PIN_FSR_LR) > FSR_CONTACT_THRESH; 
+//   contactRR = analogRead(PIN_FSR_RR) > FSR_CONTACT_THRESH; 
+// }
 
 // IMU tilt (deg)
 void getIMUTilt(float& pitchDeg, float& rollDeg) {
-  sensors_event_t orientationData, angVelocityData, linearAccelData, magnetometerData, accelerometerData, gravityData;
-  bno.getEvent(&orientationData, Adafruit_BNO055::???) // VECTOR_EULER or QUATERNION???
+  // sensors_event_t orientationData, angVelocityData, linearAccelData, magnetometerData, accelerometerData, gravityData;
+  // bno.getEvent(&orientationData, Adafruit_BNO055::???) // VECTOR_EULER or QUATERNION???
   /*
     pitchDeg = orientationData.orientation.z; // Adafruit's Euler: x=heading, y=roll, z=pitch (deg)
     rollDeg = orientationData.orientation.y; 
   */
-  pitchDeg =  
-  rollDeg = 
+  imu::Quaternion quat = bno.getQuat();
+  // check formula again 
+  pitchDeg = atan2f(2.0f * (quat.w() * quat.y() - quat.z() * quat.x()),
+                     1.0f - 2.0f * (quat.y() * quat.y() + quat.x() * quat.x())) * (180.0f / PI);
+  rollDeg = asinf(2.0f * (quat.w() * quat.x() + quat.y() * quat.z())) * (180.0f / PI);
 }
 
 // apply small tilt trims to hips to resist tipping 
@@ -72,8 +75,7 @@ void applyIMUTrims(float pitchDeg, float rollDeg,
                   float& hipLF, float& hipRF, float& hipLR, float& hipRR) {
   float pTrim = PITCH_TRIM_GAIN * pitchDeg; 
   float rTrim = ROLL_TRIM_GAIN * rollDeg; 
-
-  /*
+  
   // Roll: +roll tips right side down -> push right hips outward (neg on left, pos on right)
   hipLF -= rTrim; hipLR -= rTrim;  // left legs
   hipRF += rTrim; hipRR += rTrim;  // right legs
@@ -81,7 +83,6 @@ void applyIMUTrims(float pitchDeg, float rollDeg,
   // Pitch: +pitch = nose up -> push front hips forward (increase)
   hipLF += pTrim; hipRF += pTrim;  // front
   hipLR -= pTrim; hipRR -= pTrim;  // rear
-  */
 }
 
 // void centerAll() {
@@ -94,6 +95,14 @@ void applyIMUTrims(float pitchDeg, float rollDeg,
 //   writeJoint(ID_RR_HIP, HIP_NEUTRAL_DEG, HIP_MIN_DEG, HIP_MAX_DEG);
 //   writeJoint(ID_RR_KNEE, KNEE_NEUTRAL_DEG, KNEE_MIN_DEG, KNEE_MAX_DEG);
 // }
+void centerAll() {
+  for (uint8_t id=1; id<=8; id+=2) { // hips
+    writeJoint(id, HIP_NEUTRAL_DEG, HIP_MIN_DEG, HIP_MAX_DEG);
+  }
+  for (uint8_t id=2; id<=8; id+=2) { // knees
+    writeJoint(id, KNEE_NEUTRAL_DEG, KNEE_MIN_DEG, KNEE_MAX_DEG);
+  }
+}
 
 
 void setup() {
@@ -111,11 +120,12 @@ void setup() {
     delay(5);
   }
   enableTorqueAll(true);
-  centerAll(); ??? 
+  centerAll(); 
 
   // IMU init
   if(!bno.begin()) {
     Serial.println("BNO055 not detected. Check wiring/address.");
+    while(1);
   } else {
     bno.setExtCrystalUse(true);
   }
