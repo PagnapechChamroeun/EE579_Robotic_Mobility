@@ -18,15 +18,15 @@ int total_legs=8; //number of legs
 
 uint8_t IDs[]={1,2,3,4,5,6,7,8}; // Leg ID corresponding to [LF,RF,LR,RR] legs.  ODD = Hip, EVEN = Knee
 uint8_t Directions[]={1,0,0,1,1,0,0,1};
-float gait[]={0,0,0}; // (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR]; 
+float gait[]={0.5,0.5,0}; // (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR]; 
 float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will always be 0, the value for LF= 360*\phi_1, LR=360*\phi_2, RR=360*\phi_3; calculated in translate_gait_deg();
-int Leg_zeroing_offset[]={185, 330, 120, 210, 100, 60, 100, 0};
+int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
 float leg_ang[]={0,0,0,0,0,0,0,0};
  
-float clock_period=4; //in seconds, time to complete 1 rotation
+float clock_period=2; //in seconds, time to complete 1 rotation
 float pi = 3.14;
 
-float LL_1[]{6.5,7.5}; //Leg 1 Links in CM 9 hole = 7cm
+float LL_1[]{7.5,6.5}; //Leg 1 Links in CM 9 hole = 7cm
 
 
 //configure your timing parameters
@@ -52,7 +52,7 @@ float get_angle(float x, float y, int leg){
   return angle;
 }
 
-int x_coord[]={4,0};         //Task 3 points
+int x_coord[]={8,0};         //Task 3 points
 int y_coord[]={10,10};       //Task 3 points
 float dc = (x_coord[1] - x_coord[0]) / (((x_coord[1] - x_coord[0]) + (((x_coord[1] - x_coord[0])/2) * pi))); //0.3889845296
 float time_s = dc * clock_period;
