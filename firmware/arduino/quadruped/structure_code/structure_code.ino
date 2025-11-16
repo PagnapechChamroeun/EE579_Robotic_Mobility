@@ -13,22 +13,37 @@ const float DXL_PROTOCOL_VERSION = 2.0;
 DynamixelShield dxl;
 
 int total_legs=8; //number of legs
-
-uint8_t IDs[]={1,2,3,4,5,6,7,8}; // Leg ID corresponding to [LF,RF,LR,RR] legs.  ODD = Hip, EVEN = Knee
+/*
+LEG ID corresponding to 
+  - Left Front hip:   1 
+  - Left Front knee:  2
+  - Right Front hip:  3 
+  - Right Front knee: 4 
+  - Left Rear hip:    5 
+  - Left Rear knee:   6
+  - Right Rear hip:   7 
+  - Right Rear knee:  8 
+  ODD = Hip, Even = Knee
+*/
+uint8_t IDs[]={1,2,3,4,5,6,7,8};
 uint8_t Directions[]={1,0,0,1,1,0,0,1};
-float gait[]={0,0,0}; // (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR]; 
-float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will always be 0, the value for LF= 360*\phi_1, LR=360*\phi_2, RR=360*\phi_3; calculated in translate_gait_deg();
-// all aligned 
-// int Leg_zeroing_offset[]={185, 330,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
-// we want trotting
-int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
+/*
+ (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR]; 
+ LF is a reference leg
+*/
+float gait[]={0.5,0.5,0}; // trotting
+float gait_deg[]={0,0,0,0};  //gait in deg; [LF,RF,LR,RR]; the value for RF will always be 0, the value for LF= 360*\phi_1, LR=360*\phi_2, RR=360*\phi_3; calculated in translate_gait_deg();
 
-float leg_ang[]={0,0,0,0,0,0,0,0};
+
+/* Leg Zeroing Offset ID = [1,2,3,4,5,6,7,8] */
+int Leg_zeroing_offset[]={185, 330,/*LF*/   120, 210,/*RF*/   105, 135,/*LR*/   45, 190 /*RR*/}; 
+
+float leg_ang[]={0,0,0,0,0,0,0,0}; // [1,2,3,4,5,6,7,8] 
  
 float clock_period=4; //in seconds, time to complete 1 rotation
 float pi = 3.14;
 
-float LL_1[]{6.5,7.5}; //Leg 1 Links in CM 9 hole = 7cm
+float LL_1[]{6.5, 7.5}; 0//Leg 1 Links in CM 9 hole = 7cm
 
 
 //configure your timing parameters
@@ -41,11 +56,19 @@ void clock_init(){
   return;
 }
 
-
-float get_angle(float x, float y, int leg){
+float get_angle(float x, float y, int hipOrknee){
+  /*
+  Inverse Kinematics 
+  hipOrknee == 0: hip joint angle 
+    => use a two-link IK formula (law of cosines + atan2) to compute hip angle 
+  hipOrknee == 1: knee joint angle 
+    => use law of cosines formula to compute knee angle 
+  
+   return in degree
+  */
   float angle;
 
-  if(leg == 0){
+  if(hipOrknee == 0){
       angle = (atan2(y,x) * 180 / pi) - (acos( ((pow(x,2) + pow(y,2) - pow(LL_1[1],2) + pow(LL_1[0],2)) / (2*LL_1[0]* sqrt(pow(x,2)+pow(y,2)))) ) * 180 / pi);
     }else{
       angle = 180 - acos( ((pow(LL_1[1],2) + pow(LL_1[0],2) - pow(x,2) - pow(y,2)) / (2*LL_1[0]*LL_1[1]))) * 180/pi ;  
@@ -54,16 +77,30 @@ float get_angle(float x, float y, int leg){
   return angle;
 }
 
-int x_coord[]={4,0};         //Task 3 points
-int y_coord[]={10,10};       //Task 3 points
+/*
+foot movement
+x_coord[] and y_coord[]: start and end points of the foot in the stride cycle 
+stance phase is a line along y = 10 
+swing is a semi-circle from (0,10) to (8,10)  
+*/
+int x_coord[]={8,0};         
+int y_coord[]={10,10};      
+
+/* duty cycle of stance vs swing */
 float dc = (x_coord[1] - x_coord[0]) / (((x_coord[1] - x_coord[0]) + (((x_coord[1] - x_coord[0])/2) * pi))); //0.3889845296
-float time_s = dc * clock_period;
-float time_c = (1-dc)*clock_period;
+float time_s = dc * clock_period;   // stance phase (foot on gnd)
+float time_c = (1-dc)*clock_period; // swing phase (foot moving thru the air) 
+
+/* circular arc used during swing */
 int rad = abs(x_coord[1] - x_coord[0]) / 2;
+/* center coordinate */
 int x_cen =(x_coord[0] + x_coord[1]) / 2;
 int y_cen = y_coord[0];
 
-
+/* given x position, calculate y position
+   (-) sqrt: indicates that it has a forward position of +x 
+   curved swing trajectory (lifting and lowering the foot) 
+*/
 float get_circle(float x){
   float ans = -sqrt(pow(rad,2) - pow((x - x_cen),2)) + y_cen;
   return ans;
@@ -71,9 +108,8 @@ float get_circle(float x){
 
 
 // compute desired motor angle at any time instance
-float get_desired_angle(int leg, long elapsed){ 
-    
-    //FIXME
+float get_desired_angle(int hipOrknee, long elapsed){ 
+
     float period = fmod(elapsed / 1000.0, clock_period);
     float angle;
 
@@ -82,17 +118,21 @@ float get_desired_angle(int leg, long elapsed){
     int gait_leg = leg+1;
 
     switch (gait_leg) {
+      // Left Front (hip/knee) (reference leg)
       case 1:
       case 2: break;
+      // Right Front (hip/knee)
       case 3:
       case 4:
         period = fmod(period + (clock_period * (1-gait[0])), clock_period);
         break;
+      // Left Rear (hip/knee)
       case 5:
       case 6:
         period = fmod(period + (clock_period * (1-gait[1])), clock_period);
         period = clock_period - period;
         break;
+      // Right Rear (hip/knee)
       case 7:
       case 8:
         period = fmod(period + (clock_period * (1-gait[2])), clock_period);
@@ -104,20 +144,29 @@ float get_desired_angle(int leg, long elapsed){
 
 //    if(leg > 1){period = fmod(period + (clock_period * 0.5), clock_period);}
 
+    // in stance phase 
     if(period < time_s){
       float x = (time_s - period) / time_s * (x_coord[0] - x_coord[1]);
-      if(leg % 2 == 0){angle = get_angle(x, y_coord[0], 0);}
+      // hip joint (even index: 0,2,4,6) 
+      if(hipOrknee % 2 == 0){angle = get_angle(x, y_coord[0], 0);}
+      // knee joint (odd index: 1,3,5,7)
       else {angle = get_angle(x, y_coord[0], 1);}
-    }else{
+    }
+    // in swing phase 
+    else{
       float x = (period-time_s) / time_c * (x_coord[0] - x_coord[1]);
       float y = get_circle(x);
-      if(leg % 2 == 0){angle = get_angle(x, y, 0);}
+      // hip joint (even index: 0,2,4,6) 
+      if(hipOrknee % 2 == 0){angle = get_angle(x, y, 0);}
+      // knee joint (odd index: 1,3,5,7)
       else {angle = get_angle(x, y, 1);}
     }
 
+    // save the raw angle after calculation 
     leg_ang[leg] = angle;
+    // raw angle + its original offset
     angle = angle + Leg_zeroing_offset[leg];
-
+    // mod 360 
     angle = fmod(angle, 360);
     
     return angle; //in deg
@@ -138,10 +187,10 @@ void print_position(long t, float pos1, float pos2){
 
 void translate_gait_deg(){ //calculate the value of the array 'gait_deg[]' 
   //notice the unit of 'gait_deg[]' is in deg and has 4 elements
-  gait_deg[0]=0;  //RF
-  gait_deg[1]=gait[0]*360; //LF
-  gait_deg[2]=gait[1]*360; //LB
-  gait_deg[3]=gait[2]*360; //RB
+  gait_deg[0]=0;  //LF
+  gait_deg[1]=gait[0]*360; //RF
+  gait_deg[2]=gait[1]*360; //LR
+  gait_deg[3]=gait[2]*360; //RR
   
    return;
 }
@@ -203,56 +252,5 @@ void loop() {
   
 //    print_position(elapsed, leg_ang[0], leg_ang[1]);
   }
-//      dxl.setGoalPosition(IDs[0], Leg_zeroing_offset[0], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[1], Leg_zeroing_offset[1], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[2], Leg_zeroing_offset[2], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[3], Leg_zeroing_offset[3], UNIT_DEGREE);
-      
-//      if (in_dead_zone[i]==0){
-//
-//        
-//        if (desired_pos<300)
-//          dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
-//        else{
-//          in_dead_zone[i]=1;
-//
-//          float present_speed=dxl.getPresentVelocity(IDs[i]);
-//          dxl.torqueOff(IDs[i]);
-//          dxl.setOperatingMode(IDs[i], OP_VELOCITY);
-//          dxl.torqueOn(IDs[i]);
-//          //1 rpm=6 deg/s=9 unit
-//          //1 unit= 2/3 deg/s
-//          delay(10);
-//          if(Directions[i]==0)
-//            dxl.setGoalVelocity(IDs[i], 1.5*omega_fast()+dead_zone_speed_tuning);
-//          else
-//            dxl.setGoalVelocity(IDs[i], 1024+1.5*omega_fast()+dead_zone_speed_tuning);
-//          
-//        }
-//        delay(10);   
-//      }
-//      else{
-//        int current_pos=dxl.getPresentPosition(IDs[i], UNIT_DEGREE);
-//        bool flag_temp=0;
-//        
-        
-//        if(Directions[i]==0)
-//            flag_temp=current_pos>20;
-//         else
-//            flag_temp=current_pos<280;
-//          
-//        
-//        if (flag_temp && desired_pos>0 && desired_pos<300){
-//          in_dead_zone[i]=0;
-//          dxl.torqueOff(IDs[i]);
-//          dxl.setOperatingMode(IDs[i], OP_POSITION);
-//          dxl.torqueOn(IDs[i]);
-//          //1 rpm=6 deg/s=9 unit
-//          //1 unit= 2/3 deg/s
-//          delay(10);
-//          dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
-//        }
-        
-//      }
-  
+
 }
