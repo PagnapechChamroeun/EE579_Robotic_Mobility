@@ -42,8 +42,8 @@ float gait_deg[]={0,0,0,0};  //gait in deg; [LF,RF,LR,RR]; the value for RF will
 // int Leg_zeroing_offset[]={185, 330,/*LF*/   120, 210,/*RF*/   105, 135,/*LR*/   45, 190 /*RR*/}; 
 // 175, 160,   120, 210,   105, 135,   45, 190
 
-
-int Leg_zeroing_offset[]={175, 150,/*LF*/   120, 210,/*RF*/   120, 45,/*LR*/   50, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
+                                                                              // 50 25
+int Leg_zeroing_offset[]={175, 150,/*LF*/   120, 210,/*RF*/   120, 45,/*LR*/   45, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
 
 
 
@@ -118,7 +118,7 @@ x_coord[] and y_coord[]: start and end points of the foot in the stride cycle
 stance phase is a line along y = 10 
 swing is a semi-circle from (0,10) to (8,10)  
 */
-int x_coord[]={6,0};         
+int x_coord[]={8,0};         
 int y_coord[]={10,10};      
 
 /* duty cycle of stance vs swing */
@@ -333,10 +333,10 @@ void loop() {
       float desired_pos = get_desired_angle(i,elapsed);
 
       // add IMU-based stabilizing correction 
-      if (imu_calibrated) {
-        desired_pos += imu_correction_deg(i, roll_err, pitch_err); 
+      // if (imu_calibrated) {
+      //   desired_pos += imu_correction_deg(i, roll_err, pitch_err); 
 
-      }
+      // }
 
       // handle mirrored installation 
       if (Directions[i]==1) {
