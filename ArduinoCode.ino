@@ -23,7 +23,7 @@ float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will
 int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
 float leg_ang[]={0,0,0,0,0,0,0,0};
  
-float clock_period=2; //in seconds, time to complete 1 rotation
+float clock_period=3.5; // MODIFIED: Increased from 2 to 3.5 seconds for stability and motor torque
 float pi = 3.14;
 
 float LL_1[]{7.5,6.5}; //Leg 1 Links in CM 9 hole = 7cm
@@ -52,16 +52,30 @@ float get_angle(float x, float y, int leg){
   return angle;
 }
 
-int x_coord[]={8,0};         //Task 3 points
-int y_coord[]={10,10};       //Task 3 points
-float dc = (x_coord[1] - x_coord[0]) / (((x_coord[1] - x_coord[0]) + (((x_coord[1] - x_coord[0])/2) * pi))); //0.3889845296
+int x_coord[]={9,-3};         // MODIFIED: Changed from {8,0} to {9,-3} for 12cm stride length
+int y_coord[]={7,7};          // MODIFIED: Changed from {10,10} to {7,7} for lower body height and better stability
+float dc = 0.65;              // MODIFIED: Manually set to 0.65 (65% duty cycle) instead of calculating - critical for heavy robot
+// REMOVED CALCULATION: float dc = (x_coord[1] - x_coord[0]) / (((x_coord[1] - x_coord[0]) + (((x_coord[1] - x_coord[0])/2) * pi)));
 float time_s = dc * clock_period;
 float time_c = (1-dc)*clock_period;
 int rad = abs(x_coord[1] - x_coord[0]) / 2;
 int x_cen =(x_coord[0] + x_coord[1]) / 2;
 int y_cen = y_coord[0];
 
+float body_pitch_offset = 5;  // ADDED: Body pitch in degrees for climbing inclines (5° for 10° incline, 8° for 20° incline)
 
+
+// MODIFIED: Replaced circular trajectory with parabolic swing for better efficiency
+float get_swing_trajectory(float x){
+  // Parabolic arc with adjustable ground clearance
+  float clearance = 3.0;  // 3cm ground clearance during swing phase
+  float x_range = x_coord[0] - x_coord[1];
+  float x_normalized = (x - x_coord[1]) / x_range;  // Normalize to 0-1 range
+  float y = y_coord[0] - clearance * (4 * x_normalized * (1 - x_normalized));  // Parabola peaks at 0.5
+  return y;
+}
+
+// DEPRECATED: Old circular trajectory function - kept for reference but no longer used
 float get_circle(float x){
   float ans = -sqrt(pow(rad,2) - pow((x - x_cen),2)) + y_cen;
   return ans;
@@ -108,12 +122,21 @@ float get_desired_angle(int leg, long elapsed){
       else {angle = get_angle(x, y_coord[0], 1);}
     }else{
       float x = (period-time_s) / time_c * (x_coord[0] - x_coord[1]);
-      float y = get_circle(x);
+      float y = get_swing_trajectory(x);  // MODIFIED: Changed from get_circle(x) to get_swing_trajectory(x)
       if(leg % 2 == 0){angle = get_angle(x, y, 0);}
       else {angle = get_angle(x, y, 1);}
     }
 
     leg_ang[leg] = angle;
+    
+    // ADDED: Apply body pitch offset for climbing inclines
+    // Front legs extend more, rear legs compress to pitch body forward
+    if(leg < 4) {  // Front legs (LF hip/knee, RF hip/knee - indices 0,1,2,3)
+        angle = angle - body_pitch_offset;  // Extend forward
+    } else {       // Rear legs (LR hip/knee, RR hip/knee - indices 4,5,6,7)
+        angle = angle + body_pitch_offset;  // Compress
+    }
+    
     angle = angle + Leg_zeroing_offset[leg];
 
     angle = fmod(angle, 360);
@@ -198,59 +221,23 @@ void loop() {
       if (Directions[i]==1) desired_pos=360.0-desired_pos;
       dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
     }
-  
-//    print_position(elapsed, leg_ang[0], leg_ang[1]);
   }
-//      dxl.setGoalPosition(IDs[0], Leg_zeroing_offset[0], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[1], Leg_zeroing_offset[1], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[2], Leg_zeroing_offset[2], UNIT_DEGREE);
-//      dxl.setGoalPosition(IDs[3], Leg_zeroing_offset[3], UNIT_DEGREE);
-      
-//      if (in_dead_zone[i]==0){
-//
-//        
-//        if (desired_pos<300)
-//          dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
-//        else{
-//          in_dead_zone[i]=1;
-//
-//          float present_speed=dxl.getPresentVelocity(IDs[i]);
-//          dxl.torqueOff(IDs[i]);
-//          dxl.setOperatingMode(IDs[i], OP_VELOCITY);
-//          dxl.torqueOn(IDs[i]);
-//          //1 rpm=6 deg/s=9 unit
-//          //1 unit= 2/3 deg/s
-//          delay(10);
-//          if(Directions[i]==0)
-//            dxl.setGoalVelocity(IDs[i], 1.5*omega_fast()+dead_zone_speed_tuning);
-//          else
-//            dxl.setGoalVelocity(IDs[i], 1024+1.5*omega_fast()+dead_zone_speed_tuning);
-//          
-//        }
-//        delay(10);   
-//      }
-//      else{
-//        int current_pos=dxl.getPresentPosition(IDs[i], UNIT_DEGREE);
-//        bool flag_temp=0;
-//        
-        
-//        if(Directions[i]==0)
-//            flag_temp=current_pos>20;
-//         else
-//            flag_temp=current_pos<280;
-//          
-//        
-//        if (flag_temp && desired_pos>0 && desired_pos<300){
-//          in_dead_zone[i]=0;
-//          dxl.torqueOff(IDs[i]);
-//          dxl.setOperatingMode(IDs[i], OP_POSITION);
-//          dxl.torqueOn(IDs[i]);
-//          //1 rpm=6 deg/s=9 unit
-//          //1 unit= 2/3 deg/s
-//          delay(10);
-//          dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
-//        }
-        
-//      }
-  
 }
+
+/*
+Tuning Parameters for different inclines
+
+// For flat ground testing:
+float body_pitch_offset = 0;
+
+// For 10° incline:
+float body_pitch_offset = 5;
+
+// For 20° incline:
+float body_pitch_offset = 8;
+int y_coord[]={6.5,6.5};  // May need to go even lower
+
+// If motors still struggle:
+float clock_period = 4.0;  // Slow down further
+float dc = 0.70;           // Increase duty cycle further
+*/
