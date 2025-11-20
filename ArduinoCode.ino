@@ -189,6 +189,52 @@ float get_desired_angle(int motor_id, long elapsed) {
     return angle;
 }
 
+void process_serial_commands() {
+    if (DEBUG_SERIAL.available() > 0) {
+        String command = DEBUG_SERIAL.readStringUntil('\n');
+        int colonIndex = command.indexOf(':');
+        
+        if (colonIndex > 0) {
+            String param = command.substring(0, colonIndex);
+            float value = command.substring(colonIndex + 1).toFloat();
+            
+            if (param == "STRIDE") {
+                stride_length = value;
+                DEBUG_SERIAL.print("Stride length set to: ");
+                DEBUG_SERIAL.println(stride_length);
+            } else if (param == "HEIGHT") {
+                step_height = value;
+                DEBUG_SERIAL.print("Step height set to: ");
+                DEBUG_SERIAL.println(step_height);
+            } else if (param == "DEPTH") {
+                stance_depth = value;
+                DEBUG_SERIAL.print("Stance depth set to: ");
+                DEBUG_SERIAL.println(stance_depth);
+            } else if (param == "DUTY") {
+                dc = constrain(value, 0.1, 0.9);
+                time_s = dc * clock_period;
+                time_c = (1-dc) * clock_period;
+                DEBUG_SERIAL.print("Duty cycle set to: ");
+                DEBUG_SERIAL.println(dc);
+            } else if (param == "PERIOD") {
+                clock_period = value;
+                time_s = dc * clock_period;
+                time_c = (1-dc) * clock_period;
+                DEBUG_SERIAL.print("Period set to: ");
+                DEBUG_SERIAL.println(clock_period);
+            } else if (param == "PITCH") {
+                body_pitch_offset = value;
+                DEBUG_SERIAL.print("Body pitch set to: ");
+                DEBUG_SERIAL.println(body_pitch_offset);
+            } else if (param == "FORCE") {
+                force_angle_offset = value;
+                DEBUG_SERIAL.print("Force angle offset set to: ");
+                DEBUG_SERIAL.println(force_angle_offset);
+            }
+        }
+    }
+}
+
 // =============================================================
 
 long start;
@@ -219,7 +265,9 @@ int time_step=50;  // MODIFIED: Faster update rate (was 100ms, now 50ms)
 
 void loop() {
     long elapsed = millis() - start;
-    
+
+    process_serial_commands();
+  
     // Update motor positions at regular intervals
     if (elapsed - last_time > time_step) {
         last_time = elapsed;
