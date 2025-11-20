@@ -28,15 +28,15 @@ float leg_ang[]={0,0,0,0,0,0,0,0};
 float pi = 3.14;
 
 float L1 = 6.5;
-float L2 = 9.0;
+float L2 = 8.5;
 
 // ==============================================================
 
 // trajectory parameters (cm)
-float stride_length = 12.0;                      // total forward travel per stride
-float stance_depth = 7.0;                        // default foot depth below hip (ventral distance); lower is closer to board
+float stride_length = 10.0;                      // total forward travel per stride
+float stance_depth = 5.0;                        // default foot depth below hip (ventral distance); lower is closer to board
 float step_height = 3.0;                         // max lift during swing phase; incr for more clearance above footholds
-float swing_peak_position = 0.25;                // where in swing phase the foot reaches max height
+float swing_peak_position = 0.3;                 // where in swing phase the foot reaches max height
 
 // control parameters
 float clock_period = 5.0;                        // duration of gait cycle (sec); incr for less v, more torque
@@ -45,8 +45,8 @@ float time_s = duty_cycle * clock_period;        // stance phase duration
 float time_c = (1 - duty_cycle) * clock_period;  // swing phase duration
 
 // climbing parameters
-float body_pitch_offset = 5.0;                   // body pitch angle for inclines (deg); incr as incline incr
-float force_angle_offset = 5.0;                  // additional angle for "digging in" effect (deg)
+float body_pitch_offset = 0.0;                   // body pitch angle for inclines (deg); incr as incline incr
+float force_angle_offset = 0.0;                  // additional angle for "digging in" effect (deg)
 
 bool is_front_leg_motor[] = {true, true, true, true, false, false, false, false};
 
