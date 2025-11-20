@@ -26,7 +26,7 @@ float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will
 int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
 float leg_ang[]={0,0,0,0,0,0,0,0};
  
-float clock_period=3.5; // MODIFIED: Increased from 2 to 3.5 seconds for stability and motor torque
+float clock_period=5;
 float pi = 3.14;
 
 float L1 = 6.5;
@@ -34,159 +34,167 @@ float L2 = 9.0;
 
 // ==============================================================
 
-float stride_length = 12.0;    // Total horizontal travel (cm) - derived from your x_coord
-float stance_depth = 7.0;      // Default foot depth below hip (cm)
-float step_height = 3.0;       // Maximum lift during swing (cm)
-float body_pitch_offset = 5.0; // Body pitch for inclines (degrees)
-float force_angle_offset = 10.0; // Additional "digging in" angle (degrees)
+// Trajectory parameters (cm)
+float stride_length = 12.0;                      // Total horizontal travel per stride
+float stance_depth = 7.0;                        // Default foot depth below hip (ventral distance)
+float step_height = 3.0;                         // Maximum lift during swing phase
+float swing_peak_position = 0.3;                 // Where in swing phase (0-1) the foot reaches max height
 
-float dc = 0.65;  // Duty cycle (65% stance, 35% swing)
-float time_s = dc * clock_period;     // Stance duration
-float time_c = (1-dc)*clock_period;   // Swing duration
+// Control parameters
+float duty_cycle = 0.65;                         // % stance, 1-% swing
+float time_s = duty_cycle * clock_period;        // Stance phase duration
+float time_c = (1 - duty_cycle) * clock_period;  // Swing phase duration
 
-bool is_front_leg[] = {true, true, true, true, false, false, false, false};
+// Climbing-specific parameters
+float body_pitch_offset = 5.0;                   // Body pitch angle for inclines (degrees)
+float force_angle_offset = 10.0;                 // Additional angle for "digging in" effect (degrees)
+
+bool is_front_leg_motor[] = {true, true, true, true, false, false, false, false};
 
 // ==============================================================
 
-float enhanced_inverse_kinematics(float x, float y, bool is_hip, bool is_back_leg) {
+void get_stance_position(float phase, float& x_out, float& y_out) {
+    // During stance, foot moves from forward to backward relative to hip (BOTH front and back legs)
+    // Phase 0: foot at forward-most position
+    // Phase 1: foot at backward-most position
+    x_out = (stride_length / 2.0) * (1.0 - 2.0 * phase);
+    
+    // constant depth during stance for stability
+    y_out = stance_depth;
+    
+    // small vertical adjustment for "digging in" effect on slopes
+    // this creates a force vector angled into the slope
+    float slope_compensation = x_out * tan(force_angle_offset * pi / 180.0);
+    y_out += slope_compensation * 0.05;
+}
+
+void get_swing_position(float phase, float& x_out, float& y_out) {
+    // During swing, foot moves from backward to forward
+    // Phase 0: foot at backward-most position (end of stance)
+    // Phase 1: foot at forward-most position (start of next stance)
+    x_out = (stride_length / 2.0) * (2.0 * phase - 1.0);
+    
+    // asymmetric parabolic trajectory for ground clearance
+    float height_factor;
+    if (phase <= swing_peak_position) {
+        // rising portion
+        height_factor = phase / swing_peak_position;
+    } else {
+        // falling portion
+        height_factor = (1.0 - phase) / (1.0 - swing_peak_position);
+    }
+  
+    y_out = stance_depth - step_height * 4.0 * height_factor * (1.0 - height_factor);
+  
+}
+
+float calculate_joint_angle(float x, float y, bool is_hip, bool is_back_leg) {
     float angle;
     
-    // MODIFIED: Account for back legs being mounted reversed
-    if (is_back_leg) {
-        x = -x;  // Reverse x for back legs
-    }
-    
+    // distance from hip to target
     float distance = sqrt(x*x + y*y);
     
-    // Check reachability
+    // if target unreachable
     if (distance > (L1 + L2) || distance < abs(L1 - L2)) {
-        // Return neutral position if unreachable
-        return is_hip ? 90 : 90;
+        DEBUG_SERIAL.println("Warning: Target position unreachable!");
+        return 90;
     }
     
     if (is_hip) {
         // Hip angle calculation (theta1)
         float cos_theta2 = (L1*L1 + L2*L2 - distance*distance) / (2*L1*L2);
-        float theta2 = acos(constrain(cos_theta2, -1.0, 1.0));
+        cos_theta2 = constrain(cos_theta2, -1.0, 1.0);
         
-        float alpha = atan2(x, y);  // Angle from vertical
+        float alpha = atan2(x, y);  // angle from vertical to target
         float beta = acos((L1*L1 + distance*distance - L2*L2) / (2*L1*distance));
         
-        angle = (alpha + beta) * 180 / pi;
+        angle = (alpha + beta) * 180.0 / pi;
         
-        // Adjust for back legs
+        // back legs mounted facing backward, so their joint angles are interpreted differently
         if (is_back_leg) {
-            angle = 180 - angle;
+            // when hip extends (angle increases), foot moves backward (pushes)
+            // when hip flexes (angle decreases), foot moves forward
+            angle = 180.0 - angle;
         }
     } else {
-        // Knee angle calculation (theta2)
+        // knee angle calculation (theta2)
         float cos_theta2 = (L1*L1 + L2*L2 - distance*distance) / (2*L1*L2);
-        angle = acos(constrain(cos_theta2, -1.0, 1.0)) * 180 / pi;
+        cos_theta2 = constrain(cos_theta2, -1.0, 1.0);
+        angle = acos(cos_theta2) * 180.0 / pi;
+        
+        // back leg knees might need adjustment depending on mounting
+        // keep as-is if knees have same orientation
     }
     
     return angle;
 }
 
-void get_stance_position(float phase, bool is_front, float& x_out, float& y_out) {
-    // MODIFIED: Linear motion but with different strategies for front/back
-    if (is_front) {
-        // Front legs: Pull motion (start forward, pull back)
-        x_out = (stride_length / 2.0) * (1.0 - 2.0 * phase);
-    } else {
-        // Back legs: Push motion (start back, push forward)
-        // Since back legs are reversed, this creates pushing force
-        x_out = (stride_length / 2.0) * (2.0 * phase - 1.0);
-    }
-    
-    // Keep constant depth for stability
-    y_out = stance_depth;
-    
-    // NEW: Apply force angle for "digging in" effect on slopes
-    // Slightly adjust y based on x position to create angled force vector
-    float slope_compensation = x_out * tan(force_angle_offset * pi / 180);
-    y_out += slope_compensation * 0.1;  // Small adjustment
-}
-
-void get_swing_position(float phase, bool is_front, float& x_out, float& y_out) {
-    // MODIFIED: Improved swing trajectory
-    if (is_front) {
-        // Front legs swing forward (from back to front)
-        x_out = (stride_length / 2.0) * (2.0 * phase - 1.0);
-    } else {
-        // Back legs swing backward (from front to back in their frame)
-        x_out = (stride_length / 2.0) * (1.0 - 2.0 * phase);
-    }
-    
-    // NEW: Better parabolic trajectory with peak at 30% of swing
-    float swing_peak = 0.3;  // Peak height occurs at 30% of swing phase
-    float height_factor;
-    if (phase <= swing_peak) {
-        height_factor = phase / swing_peak;
-    } else {
-        height_factor = (1.0 - phase) / (1.0 - swing_peak);
-    }
-    
-    // Smooth parabolic lift
-    y_out = stance_depth - step_height * 4.0 * height_factor * (1.0 - height_factor);
-}
-
 float get_desired_angle(int motor_id, long elapsed) {
-    // Determine which leg and whether hip or knee
+    // determine leg and joint type
     int leg_num = motor_id / 2;  // 0=LF, 1=RF, 2=LR, 3=RR
     bool is_hip = (motor_id % 2 == 0);
     bool is_front = (leg_num < 2);
     bool is_back = !is_front;
     
-    // Calculate phase for this specific leg
-    float period = fmod(elapsed / 1000.0, clock_period);
+    // base phase (0 to 1) within gait cycle
+    float base_period = fmod(elapsed / 1000.0, clock_period);
     
-    // Apply phase offsets for trotting gait
+    // apply phase offsets for trotting gait based on leg
+    float period = base_period;
     switch (leg_num) {
-        case 0: // LF - phase 0
+        case 0: // LF - ref phase (0)
             break;
-        case 1: // RF - phase π (opposite of LF)
+        case 1: // RF - opposite phase (π)
             period = fmod(period + (clock_period * 0.5), clock_period);
             break;
-        case 2: // LR - phase π (diagonal with LF)
+        case 2: // LR - opposite phase (π)
             period = fmod(period + (clock_period * 0.5), clock_period);
             break;
-        case 3: // RR - phase 0 (diagonal with RF)
+        case 3: // RR - same phase as LF (0)
             break;
     }
     
-    // Determine if in stance or swing phase
+    // foot position based on gait phase
     float x, y;
     if (period < time_s) {
-        // Stance phase
-        float stance_phase = period / time_s;
-        get_stance_position(stance_phase, is_front, x, y);
+        // stance
+        float stance_phase = period / time_s;  // normalize
+        get_stance_position(stance_phase, x, y);
     } else {
-        // Swing phase
-        float swing_phase = (period - time_s) / time_c;
-        get_swing_position(swing_phase, is_front, x, y);
+        // swing
+        float swing_phase = (period - time_s) / time_c;  // normalize
+        get_swing_position(swing_phase, x, y);
     }
     
-    // Calculate joint angle using enhanced IK
-    float angle = enhanced_inverse_kinematics(x, y, is_hip, is_back);
+    // joint angle IK
+    float angle = calculate_joint_angle(x, y, is_hip, is_back);
     
-    // Store for debugging
     leg_ang[motor_id] = angle;
     
-    // Apply body pitch compensation for climbing
+    // apply body pitch compensation for climbing inclines
+    // front legs extend more, back legs compress to tilt body forward
     if (is_front) {
-        angle -= body_pitch_offset;  // Extend front legs
+        angle -= body_pitch_offset;  // reduce angle (extend forward)
     } else {
-        angle += body_pitch_offset;  // Compress rear legs
+        angle += body_pitch_offset;  // increase angle (compress)
     }
     
-    // Apply motor zero offset
+    // apply motor-specific zero offset calibration
     angle += Leg_zeroing_offset[motor_id];
     
-    // Ensure angle is in valid range
-    angle = fmod(angle, 360);
-    if (angle < 0) angle += 360;
+    angle = fmod(angle, 360.0);
+    if (angle < 0) angle += 360.0;
     
     return angle;
+}
+
+// ======================================================
+
+void translate_gait_deg() {
+    gait_deg[0] = 0;
+    gait_deg[1] = gait[0] * 360;
+    gait_deg[2] = gait[1] * 360;
+    gait_deg[3] = gait[2] * 360;
 }
 
 void process_serial_commands() {
@@ -211,15 +219,15 @@ void process_serial_commands() {
                 DEBUG_SERIAL.print("Stance depth set to: ");
                 DEBUG_SERIAL.println(stance_depth);
             } else if (param == "DUTY") {
-                dc = constrain(value, 0.1, 0.9);
-                time_s = dc * clock_period;
-                time_c = (1-dc) * clock_period;
+                duty_cycle = constrain(value, 0.1, 0.9);
+                time_s = duty_cycle * clock_period;
+                time_c = (1 - duty_cycle) * clock_period;
                 DEBUG_SERIAL.print("Duty cycle set to: ");
-                DEBUG_SERIAL.println(dc);
+                DEBUG_SERIAL.println(duty_cycle);
             } else if (param == "PERIOD") {
                 clock_period = value;
-                time_s = dc * clock_period;
-                time_c = (1-dc) * clock_period;
+                time_s = duty_cycle * clock_period;
+                time_c = (1 - duty_cycle) * clock_period;
                 DEBUG_SERIAL.print("Period set to: ");
                 DEBUG_SERIAL.println(clock_period);
             } else if (param == "PITCH") {
@@ -228,8 +236,21 @@ void process_serial_commands() {
                 DEBUG_SERIAL.println(body_pitch_offset);
             } else if (param == "FORCE") {
                 force_angle_offset = value;
-                DEBUG_SERIAL.print("Force angle offset set to: ");
+                DEBUG_SERIAL.print("Force angle set to: ");
                 DEBUG_SERIAL.println(force_angle_offset);
+            } else if (param == "PEAK") {
+                swing_peak_position = constrain(value, 0.1, 0.9);
+                DEBUG_SERIAL.print("Swing peak position set to: ");
+                DEBUG_SERIAL.println(swing_peak_position);
+            } else if (param == "CONFIG") {
+                DEBUG_SERIAL.println("Current Configuration:");
+                DEBUG_SERIAL.print("Stride: "); DEBUG_SERIAL.println(stride_length);
+                DEBUG_SERIAL.print("Height: "); DEBUG_SERIAL.println(step_height);
+                DEBUG_SERIAL.print("Depth: "); DEBUG_SERIAL.println(stance_depth);
+                DEBUG_SERIAL.print("Duty: "); DEBUG_SERIAL.println(duty_cycle);
+                DEBUG_SERIAL.print("Period: "); DEBUG_SERIAL.println(clock_period);
+                DEBUG_SERIAL.print("Pitch: "); DEBUG_SERIAL.println(body_pitch_offset);
+                DEBUG_SERIAL.print("Force angle: "); DEBUG_SERIAL.println(force_angle_offset);
             }
         }
     }
@@ -237,7 +258,9 @@ void process_serial_commands() {
 
 // =============================================================
 
-long start;
+long start_time;
+long last_update = 0;
+int update_interval = 50; 
 
 void setup() {
     DEBUG_SERIAL.begin(115200);
@@ -245,46 +268,60 @@ void setup() {
     dxl.begin(1000000);
     dxl.setPortProtocolVersion(DXL_PROTOCOL_VERSION);
     
-    // Initialize all motors
-    for (int i=0; i<total_legs; i++){
+    for (int i = 0; i < total_legs; i++) {
         dxl.torqueOff(IDs[i]);
         dxl.setOperatingMode(IDs[i], OP_POSITION);
         dxl.torqueOn(IDs[i]);
         delay(100);
     }
     
-    start = millis();
+    start_time = millis();
+    translate_gait_deg();
     
-    // Print configuration
-    DEBUG_SERIAL.println("Enhanced Climbing Gait Controller Started");
-    DEBUG_SERIAL.println("Commands: STRIDE:val, HEIGHT:val, DEPTH:val, DUTY:val, PERIOD:val, PITCH:val");
+    DEBUG_SERIAL.println("Serial Commands:");
+    DEBUG_SERIAL.println("  STRIDE:n  - Set stride length (cm)");
+    DEBUG_SERIAL.println("  HEIGHT:n  - Set step height (cm)");
+    DEBUG_SERIAL.println("  DEPTH:n   - Set stance depth (cm)");
+    DEBUG_SERIAL.println("  DUTY:n    - Set duty cycle (0.1-0.9)");
+    DEBUG_SERIAL.println("  PERIOD:n  - Set gait period (sec)");
+    DEBUG_SERIAL.println("  PITCH:n   - Set body pitch (deg)");
+    DEBUG_SERIAL.println("  FORCE:n   - Set force angle (deg)");
+    DEBUG_SERIAL.println("  PEAK:n    - Set swing peak position (0.1-0.9)");
+    DEBUG_SERIAL.println("  CONFIG    - Show current config");
 }
 
-long last_time=0;
-int time_step=50;  // MODIFIED: Faster update rate (was 100ms, now 50ms)
-
 void loop() {
-    long elapsed = millis() - start;
-
+    long elapsed = millis() - start_time;
+    
     process_serial_commands();
-  
-    // Update motor positions at regular intervals
-    if (elapsed - last_time > time_step) {
-        last_time = elapsed;
+    
+    if (elapsed - last_update > update_interval) {
+        last_update = elapsed;
         
-        for (int i=0; i<total_legs; i++){
+        for (int i = 0; i < total_legs; i++) {
             float desired_pos = get_desired_angle(i, elapsed);
-            
-            // Apply direction reversal if needed
+
+            // direction reversal
             if (Directions[i] == 1) {
                 desired_pos = 360.0 - desired_pos;
             }
             
             dxl.setGoalPosition(IDs[i], desired_pos, UNIT_DEGREE);
+          
+        }
+        
+        if(false) {  // for debug
+            DEBUG_SERIAL.print("LF Hip: ");
+            DEBUG_SERIAL.print(leg_ang[0]);
+            DEBUG_SERIAL.print(" | LF Knee: ");
+            DEBUG_SERIAL.print(leg_ang[1]);
+            DEBUG_SERIAL.print(" | RR Hip: ");
+            DEBUG_SERIAL.print(leg_ang[6]);
+            DEBUG_SERIAL.print(" | RR Knee: ");
+            DEBUG_SERIAL.println(leg_ang[7]);
         }
     }
 }
-
 
 
 
