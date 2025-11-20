@@ -20,13 +20,13 @@ uint8_t IDs[]={1,2,3,4,5,6,7,8}; // Leg ID corresponding to [LF,RF,LR,RR] legs. 
 uint8_t Directions[]={1,0,0,1,1,0,0,1};
 float gait[]={0.5,0.5,0}; // (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR]; 
 float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will always be 0, the value for LF= 360*\phi_1, LR=360*\phi_2, RR=360*\phi_3; calculated in translate_gait_deg();
-int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
+int Leg_zeroing_offset[]={210, 120,   155, 180,   85, 45,   10, 25}; // [1,2,3,4,5,6,7,8] 
 float leg_ang[]={0,0,0,0,0,0,0,0};
  
-float clock_period=2; //in seconds, time to complete 1 rotation
+float clock_period=4; //in seconds, time to complete 1 rotation
 float pi = 3.14;
 
-float LL_1[]{7.5,6.5}; //Leg 1 Links in CM 9 hole = 7cm
+float LL_1[]{6.5,9.5}; //Leg 1 Links in CM 9 hole = 7cm
 
 
 //configure your timing parameters
@@ -52,8 +52,8 @@ float get_angle(float x, float y, int leg){
   return angle;
 }
 
-int x_coord[]={8,0};         //Task 3 points
-int y_coord[]={10,10};       //Task 3 points
+int x_coord[]={8,0, 8, 0};         //Task 3 points
+int y_coord[]={12,12, 16, 16};       //Task 3 points
 float dc = (x_coord[1] - x_coord[0]) / (((x_coord[1] - x_coord[0]) + (((x_coord[1] - x_coord[0])/2) * pi))); //0.3889845296
 float time_s = dc * clock_period;
 float time_c = (1-dc)*clock_period;
@@ -62,18 +62,21 @@ int x_cen =(x_coord[0] + x_coord[1]) / 2;
 int y_cen = y_coord[0];
 
 
-float get_circle(float x){
-  float ans = -sqrt(pow(rad,2) - pow((x - x_cen),2)) + y_cen;
+float get_circle(float x, int sw){
+  float a = (sw) ? 4.0 : 4.0;
+  float b = (sw) ? 4.0: 4.0;
+//  float ans = -sqrt(pow(rad,2) - pow((x - x_cen),2)) + y_cen; //circle
+//  float ans = -pow(x,2) + pow((x_coord[0] - x_coord[1])/2,2) + y_coord[0]; //parabola
+  float ans = -(b * sqrt(1 - (pow((x - x_cen),2) / pow(a,2)))) + y_cen; //ellipse
   return ans;
 }
 
 
 // compute desired motor angle at any time instance
 float get_desired_angle(int leg, long elapsed){ 
-    
     //FIXME
     float period = fmod(elapsed / 1000.0, clock_period);
-    float angle;
+    float angle, x, y;
 
 //    if(leg != 0 && leg != 1){period = fmod(period + (clock_period * (1-gait[leg-1])), clock_period);}
 
@@ -102,18 +105,32 @@ float get_desired_angle(int leg, long elapsed){
 
 //    if(leg > 1){period = fmod(period + (clock_period * 0.5), clock_period);}
 
+    int x_c = (leg<4) ? x_coord[0] - x_coord[1] : x_coord[2] - x_coord[3];
+    int y_c = (leg<4) ? y_coord[0] : y_coord[2];
+
+
     if(period < time_s){
-      float x = (time_s - period) / time_s * (x_coord[0] - x_coord[1]);
-      if(leg % 2 == 0){angle = get_angle(x, y_coord[0], 0);}
-      else {angle = get_angle(x, y_coord[0], 1);}
+      x = (time_s - period) / time_s * (x_c);
+      y = y_coord[0];
+      if(leg % 2 == 0){angle = get_angle(x, y, 0);}
+      else {angle = get_angle(x, y, 1);}
     }else{
-      float x = (period-time_s) / time_c * (x_coord[0] - x_coord[1]);
-      float y = get_circle(x);
+      x = (period-time_s) / time_c * (x_c);
+      y = (leg<4) ? get_circle(x, 0) : get_circle(x, 1);  // MODIFIED: Changed from get_circle(x) to get_swing_trajectory(x)
       if(leg % 2 == 0){angle = get_angle(x, y, 0);}
       else {angle = get_angle(x, y, 1);}
     }
 
     leg_ang[leg] = angle;
+
+    if(leg == 0){
+      DEBUG_SERIAL.print(period);
+      DEBUG_SERIAL.print(",");
+      DEBUG_SERIAL.print(x);
+      DEBUG_SERIAL.print(",");
+      DEBUG_SERIAL.println(y);
+    }
+    
     angle = angle + Leg_zeroing_offset[leg];
 
     angle = fmod(angle, 360);
