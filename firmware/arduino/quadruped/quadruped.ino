@@ -42,8 +42,10 @@ float gait_deg[]={0,0,0,0};  //gait in deg; [LF,RF,LR,RR]; the value for RF will
 // int Leg_zeroing_offset[]={185, 330,/*LF*/   120, 210,/*RF*/   105, 135,/*LR*/   45, 190 /*RR*/}; 
 // 175, 160,   120, 210,   105, 135,   45, 190
 
-                                                                              // 50 25
-int Leg_zeroing_offset[]={175, 150,/*LF*/   120, 210,/*RF*/   120, 45,/*LR*/   45, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
+                          // 175, 150       // 120, 210       // 120, 45       // 45, 25                               
+int Leg_zeroing_offset[]={200, 150,/*LF*/   145, 210,/*RF*/   145, 45,/*LR*/   70, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
+
+int Leg_neutral_pose[]={180, 270,/*LF*/   125, 325,/*RF*/   140, 120,/*LR*/   75, 0 /*RR*/}; 
 
 
 
@@ -54,6 +56,9 @@ float clock_period=4; //in seconds, time to complete 1 rotation
 float pi = 3.14;
 
 float LL_1[] = {6.5, 7.5}; //Leg 1 Links in CM 9 hole = 7cm
+
+// LED blink param
+int NUM_OF_BLINKS = 5;  
 
 
 //configure your timing parameters
@@ -66,19 +71,34 @@ void clock_init(){
   return;
 }
 
-// void set_all_legs_to_neutral() {
-//   for (int i = 0; i < total_legs; i++) {
-//     float neutral = Leg_zeroing_offset[i]; // "zero leg offset angle" in your IK frame0 
+void set_all_legs_to_neutral() {
+  for (int i = 0; i < total_legs; i++) {
+    float neutral = Leg_neutral_pose[i]; // "neutral leg offset angle" in your IK frame0 
 
-//     // apply mirrored direction the same way as in loop() 
-//     if(Directions[i] == 1) {
-//       neutral = 360.0f - neutral; 
-//     }
+    // apply mirrored direction the same way as in loop() 
+    if(Directions[i] == 1) {
+      neutral = 360.0f - neutral; 
+    }
 
-//     // set position 
-//     dxl.setGoalPosition(IDs[i], neutral, UNIT_DEGREE); 
-//   }
-// }
+    // set position 
+    dxl.setGoalPosition(IDs[i], neutral, UNIT_DEGREE); 
+  }
+}
+
+// number of blink 
+void led_blink_indicator(int NUM_OF_BLINKS){
+  // initialize digital pin LED_BUILTIN as an output 
+  pinMode(LED_BUILTIN, OUTPUT); 
+
+  for (int i=0; i < NUM_OF_BLINKS; i++) {
+    // turn the LED on (HIGH is the voltage level)
+    digitalWrite(LED_BUILTIN, HIGH); 
+    delay(1000); // wait for a second
+    // turn the LED off by making the voltage LOW 
+    digitalWrite(LED_BUILTIN, LOW); 
+    delay(1000);
+  }
+}
 
 // float compute_neutral_angle(int i) {
 //   // Base neutral angle from calibration zero leg offset 
@@ -240,6 +260,8 @@ int dead_zone_speed_tuning=-10; //adjustment to tune deadzone speed, MAGIC Varia
 
 long start;
 
+
+
 void setup() {
   // put your setup code here, to run once:
   DEBUG_SERIAL.begin(115200);
@@ -268,17 +290,16 @@ void setup() {
     dxl.setOperatingMode(IDs[i], OP_POSITION);
     dxl.torqueOn(IDs[i]);
     delay(100);
-
-    // float neutral = compute_neutral_angle(i); 
-    // dxl.setGoalPosition(IDs[i], neutral, UNIT_DEGREE); 
   }
 
   // ----- move legs to neutral pose -----
-//  set_all_legs_to_neutral(); 
-  // delay(4000); // wait for 2 sec 
+  set_all_legs_to_neutral(); 
+
+  // set LED blink to indicate that it is about to start calibrating when the LED stops blinking
+  led_blink_indicator(NUM_OF_BLINKS);  
   
-  // ----- samples imu data ----- 
-  // calibrateIMU(); // capture level reference posture // print initial value
+  // ----- sampling imu data ----- 
+  calibrateIMU(); // capture level reference posture // print initial value
 
   // ----- start gait timing ----- 
   start = millis();
@@ -290,24 +311,13 @@ void setup() {
 long last_time=0;
 int time_step=100;
 bool in_dead_zone[]={0,0,0,0}; //0=not, 1=in
-bool imu_calibrated = false; 
-unsigned long imu_calib_time_ms = 5000; // wait 5 s after start 
 
 void loop() {
   // put your main code here, to run repeatedly:
   
   // Please refer to e-Manual(http://emanual.robotis.com/docs/en/parts/interface/dynamixel_shield/) for available range of value. 
   // Set Goal Position in RAW value
-  
-  // calibration 
-  if(!imu_calibrated) {
-    if (millis() - start > imu_calib_time_ms) {
-      DEBUG_SERIAL.println("Auto IMU calibration...");
-      calibrateIMU(); 
-      imu_calibrated = true; 
-      DEBUG_SERIAL.println("IMU calibration done."); 
-    }
-  }
+
   
   long elapsed = millis() - start;
   
@@ -333,10 +343,8 @@ void loop() {
       float desired_pos = get_desired_angle(i,elapsed);
 
       // add IMU-based stabilizing correction 
-      // if (imu_calibrated) {
-      //   desired_pos += imu_correction_deg(i, roll_err, pitch_err); 
-
-      // }
+      float corr = imu_correction_deg(i, roll_err, pitch_err); 
+      desired_pos += corr;
 
       // handle mirrored installation 
       if (Directions[i]==1) {
