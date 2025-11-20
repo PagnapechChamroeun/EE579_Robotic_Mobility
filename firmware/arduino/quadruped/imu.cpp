@@ -27,8 +27,8 @@ float imu_yaw = 0.0f;
 bool imu_ok = false; 
 
 // weight penalty/reward to error 
-const float K_ROLL = 0.3f;  // deg of hip correction per deg of roll error 
-const float K_PITCH = 0.3f; // deg of hip correction per deg of pitch error 
+const float K_ROLL = 0.1f;  // deg of hip correction per deg of roll error 
+const float K_PITCH = 0.05f; // deg of hip correction per deg of pitch error 
 
 void readIMU(float& roll_deg, float& pitch_deg, float& yaw_deg) {
     // imu has problem 
@@ -53,7 +53,7 @@ void readIMU(float& roll_deg, float& pitch_deg, float& yaw_deg) {
 void calibrateIMU() {
     DEBUG_SERIAL.println("Calibrating IMU baseline... keep robot standing level.");
 
-    const int N = 100; // number of samples to average 
+    const int N = 1000; // number of samples to average 
     float roll_sum = 0.0f; 
     float pitch_sum = 0.0f; 
     float yaw_sum = 0.0f; 
@@ -64,7 +64,7 @@ void calibrateIMU() {
         roll_sum += r; 
         pitch_sum += p; 
         yaw_sum += y; 
-        delay(20); // 100 * 20 ms = 2 seconds 
+        delay(10); // 1000 * 10 ms = 10 seconds 
     }
 
     imu_roll0 = roll_sum / N; 
@@ -98,9 +98,9 @@ float imu_correction_deg(int leg_index, float roll_err, float pitch_err) {
     // Lateral stabilization (roll)
     // if lean left
     if (is_left) { // tweak sign as needed
-        corr += K_ROLL * roll_err; 
-    } else {
         corr -= K_ROLL * roll_err; 
+    } else {
+        corr += K_ROLL * roll_err; 
     }
 
     // Fore-aft stabilization (pitch) 
@@ -110,6 +110,11 @@ float imu_correction_deg(int leg_index, float roll_err, float pitch_err) {
     } else {
         corr -= K_PITCH * pitch_err; 
     }
+
+    // clamp
+    const float MAX_CORR = 4.0f; // degrees 
+    if (corr > MAX_CORR) corr  = MAX_CORR; 
+    if (corr < -MAX_CORR) corr = -MAX_CORR; 
 
     return corr; 
 }

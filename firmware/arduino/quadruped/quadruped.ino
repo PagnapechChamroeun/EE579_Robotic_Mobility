@@ -43,19 +43,21 @@ float gait_deg[]={0,0,0,0};  //gait in deg; [LF,RF,LR,RR]; the value for RF will
 // 175, 160,   120, 210,   105, 135,   45, 190
 
                           // 175, 150       // 120, 210       // 120, 45       // 45, 25                               
-int Leg_zeroing_offset[]={200, 150,/*LF*/   145, 210,/*RF*/   145, 45,/*LR*/   70, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
+// int Leg_zeroing_offset[]={200, 150,/*LF*/   145, 210,/*RF*/   145, 45,/*LR*/   70, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
 
-int Leg_neutral_pose[]={180, 270,/*LF*/   125, 325,/*RF*/   140, 120,/*LR*/   75, 0 /*RR*/}; 
+int Leg_zeroing_offset[]={175, 140,/*LF*/   120, 200,/*RF*/   105, 45,/*LR*/   30, 25 /*RR*/}; // [1,2,3,4,5,6,7,8] 
+
+int Leg_neutral_pose[]={180, 270,/*LF*/   125, 335,/*RF*/   140, 120,/*LR*/   75,100 /*RR*/}; 
 
 
 
 
 float leg_ang[]={0,0,0,0,0,0,0,0}; // [1,2,3,4,5,6,7,8] 
  
-float clock_period=4; //in seconds, time to complete 1 rotation
+float clock_period=3; //in seconds, time to complete 1 rotation
 float pi = 3.14;
 
-float LL_1[] = {6.5, 7.5}; //Leg 1 Links in CM 9 hole = 7cm
+float LL_1[] = {6.5, 8.0}; //Leg 1 Links in CM 9 hole = 7cm
 
 // LED blink param
 int NUM_OF_BLINKS = 5;  
@@ -162,6 +164,48 @@ float get_circle(float x){
 }
 
 
+/* Elliptical swing parameters */
+// Half step length in x (foot moves from x=0 to x=8)
+const float SWING_A = 4.0f; 
+
+// Vertical height (in "y" units) for flat and slope 
+const float SWING_B_FLAT = 2.0f;  // lower, energy-saving on flat 
+const float SWING_B_SLOPE = 3.5f; // higher clearance on slope 
+
+// Extra lift offset for slope (shifts whole swing arc up)
+const float SWING_Y_OFFSET_SLOPE = -0.7f;   // negative = more "up" (smaller y)
+
+// Global flag (inside loop based on IMU pitch)
+bool slope_mode = false; 
+
+// compute elliptical swing foot position for given phase in [0,1]
+// phase = 0 => start of swing at x = 0 
+// phase = 1 => end of swing at x = 8 
+void get_swing_xy(float phase, bool useSlope, float& x, float& y) {
+  // elipse center 
+  float x_c = (x_coord[0] + x_coord[1]) * 0.5f; // = 4 
+  float y_c = y_coord[0];                       // = 10 
+  
+  // horizontal half-length 
+  float a = SWING_A; 
+
+  // vertical half-height 
+  float b = useSlope ? SWING_B_SLOPE : SWING_B_FLAT; 
+  float y_offset = useSlope ? SWING_Y_OFFSET_SLOPE : 0.0f; 
+
+  // theta goes from pi to 2*pi so x runs 0 -> 8, y makes a smooth arch
+  float theta = pi + pi * phase; // pi ... 2*pi 
+
+  // Ellipse param 
+  // x = x_c + a cos(theta), y = (y_c + offset) + b sin(theta) 
+  x = x_c + a * cos(theta); 
+  y = (y_c + y_offset) + b * sin(theta); 
+
+  // Note: in this coordinate system, smaller y means foot is higher
+
+}
+
+
 // compute desired motor angle at any time instance
 float get_desired_angle(int leg_index, long elapsed){ 
 
@@ -202,19 +246,41 @@ float get_desired_angle(int leg_index, long elapsed){
     // in stance phase 
     if(period < time_s){
       float x = (time_s - period) / time_s * (x_coord[0] - x_coord[1]);
+      float y = y_coord[0];  // constant stance height 
       // hip joint (even index: 0,2,4,6) 
-      if(leg_index % 2 == 0){angle = get_angle(x, y_coord[0], 0);}
+      if(leg_index % 2 == 0){
+        angle = get_angle(x, y, 0);
+      }
       // knee joint (odd index: 1,3,5,7)
-      else {angle = get_angle(x, y_coord[0], 1);}
+      else {
+        angle = get_angle(x, y, 1);
+      }
     }
-    // in swing phase 
-    else{
-      float x = (period-time_s) / time_c * (x_coord[0] - x_coord[1]);
-      float y = get_circle(x);
-      // hip joint (even index: 0,2,4,6) 
-      if(leg_index % 2 == 0){angle = get_angle(x, y, 0);}
-      // knee joint (odd index: 1,3,5,7)
-      else {angle = get_angle(x, y, 1);}
+    // // in swing phase (semi-circle)
+    // else{
+    //   float x = (period-time_s) / time_c * (x_coord[0] - x_coord[1]);
+    //   float y = get_circle(x);
+    //   // hip joint (even index: 0,2,4,6) 
+    //   if(leg_index % 2 == 0){angle = get_angle(x, y, 0);}
+    //   // knee joint (odd index: 1,3,5,7)
+    //   else {angle = get_angle(x, y, 1);}
+    // }
+
+    // in swing phase (elliptical)
+    else {
+      // normalized swing phase in [0, 1] 
+      float swing_phase = (period - time_s) / time_c;
+
+      float x, y;
+      // Use higher ellipse when on slope, lower ellipse on flat 
+      get_swing_xy(swing_phase, slope_mode, x, y); 
+
+      if (leg_index % 2 == 0) { // hip
+        angle = get_angle(x, y, 0);
+      } else {                  // knee 
+        angle = get_angle(x, y, 1); 
+      }
+
     }
 
     // save the raw angle after calculation 
@@ -328,8 +394,18 @@ void loop() {
     //----- Read current IMU orientation ----- 
     readIMU(imu_roll, imu_pitch, imu_yaw);
 
-    float roll_err = imu_roll - imu_roll0; 
+    float roll_err = imu_roll - imu_roll0;
     float pitch_err = imu_pitch - imu_pitch0; 
+
+    // simple slope detector 
+    // if the torso pitch deviates beyond some threshold, treat as "slope mode".
+    const float SLOPE_PITCH_THRESH = 5.0f; // deg, modify the threshold as desired
+    float pitch_now = imu_pitch - imu_pitch0; 
+    if (fabs(pitch_now) > SLOPE_PITCH_THRESH) {
+      slope_mode = true;    // slope (uphill or downhill)
+    } else {
+      slope_mode = false;   // flat 
+    }
 
     // See errors over serial 
     DEBUG_SERIAL.print("roll_err: "); 
