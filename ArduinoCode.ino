@@ -34,29 +34,29 @@ float L2 = 9.0;
 
 // ==============================================================
 
-// Trajectory parameters (cm)
-float stride_length = 12.0;                      // Total horizontal travel per stride
-float stance_depth = 7.0;                        // Default foot depth below hip (ventral distance)
-float step_height = 3.0;                         // Maximum lift during swing phase
-float swing_peak_position = 0.3;                 // Where in swing phase (0-1) the foot reaches max height
+// trajectory parameters (cm)
+float stride_length = 12.0;                      // total forward travel per stride
+float stance_depth = 7.0;                        // default foot depth below hip (ventral distance)
+float step_height = 3.0;                         // max lift during swing phase
+float swing_peak_position = 0.3;                 // where in swing phase the foot reaches max height
 
-// Control parameters
-float duty_cycle = 0.65;                         // % stance, 1-% swing
-float time_s = duty_cycle * clock_period;        // Stance phase duration
-float time_c = (1 - duty_cycle) * clock_period;  // Swing phase duration
+// control parameters
+float duty_cycle = 0.65;                         // proportion in stance, 1-proportion in swing
+float time_s = duty_cycle * clock_period;        // stance phase duration
+float time_c = (1 - duty_cycle) * clock_period;  // swing phase duration
 
-// Climbing-specific parameters
-float body_pitch_offset = 5.0;                   // Body pitch angle for inclines (degrees)
-float force_angle_offset = 10.0;                 // Additional angle for "digging in" effect (degrees)
+// climbing parameters
+float body_pitch_offset = 5.0;                   // body pitch angle for inclines (deg)
+float force_angle_offset = 10.0;                 // additional angle for "digging in" effect (deg)
 
 bool is_front_leg_motor[] = {true, true, true, true, false, false, false, false};
 
 // ==============================================================
 
 void get_stance_position(float phase, float& x_out, float& y_out) {
-    // During stance, foot moves from forward to backward relative to hip (BOTH front and back legs)
-    // Phase 0: foot at forward-most position
-    // Phase 1: foot at backward-most position
+    // during stance, foot moves from forward to backward relative to hip (BOTH front and back legs)
+    // phase 0: foot at forward-most position
+    // phase 1: foot at backward-most position
     x_out = (stride_length / 2.0) * (1.0 - 2.0 * phase);
     
     // constant depth during stance for stability
@@ -69,9 +69,9 @@ void get_stance_position(float phase, float& x_out, float& y_out) {
 }
 
 void get_swing_position(float phase, float& x_out, float& y_out) {
-    // During swing, foot moves from backward to forward
-    // Phase 0: foot at backward-most position (end of stance)
-    // Phase 1: foot at forward-most position (start of next stance)
+    // during swing, foot moves from backward to forward
+    // phase 0: foot at backward-most position (end of stance)
+    // phase 1: foot at forward-most position (start of next stance)
     x_out = (stride_length / 2.0) * (2.0 * phase - 1.0);
     
     // asymmetric parabolic trajectory for ground clearance
