@@ -25,8 +25,6 @@ float gait[]={0.5,0.5,0}; // (\phi_1, \phi_2, \phi_3) = [LF-RF,LF-LR,LF-RR];
 float gait_deg[]={0,0,0,0};  //gait in deg; [RF,LF,LR,RR]; the value for RF will always be 0, the value for LF= 360*\phi_1, LR=360*\phi_2, RR=360*\phi_3; calculated in translate_gait_deg();
 int Leg_zeroing_offset[]={175, 160,   120, 210,   105, 135,   45, 190}; // [1,2,3,4,5,6,7,8] 
 float leg_ang[]={0,0,0,0,0,0,0,0};
- 
-float clock_period=5;
 float pi = 3.14;
 
 float L1 = 6.5;
@@ -36,18 +34,19 @@ float L2 = 9.0;
 
 // trajectory parameters (cm)
 float stride_length = 12.0;                      // total forward travel per stride
-float stance_depth = 7.0;                        // default foot depth below hip (ventral distance)
-float step_height = 3.0;                         // max lift during swing phase
-float swing_peak_position = 0.3;                 // where in swing phase the foot reaches max height
+float stance_depth = 7.0;                        // default foot depth below hip (ventral distance); lower is closer to board
+float step_height = 3.0;                         // max lift during swing phase; incr for more clearance above footholds
+float swing_peak_position = 0.25;                // where in swing phase the foot reaches max height
 
 // control parameters
-float duty_cycle = 0.65;                         // proportion in stance, 1-proportion in swing
+float clock_period = 5.0;                        // duration of gait cycle (sec); incr for less v, more torque
+float duty_cycle = 0.65;                         // proportion in stance, 1-proportion in swing; incr for more stability
 float time_s = duty_cycle * clock_period;        // stance phase duration
 float time_c = (1 - duty_cycle) * clock_period;  // swing phase duration
 
 // climbing parameters
-float body_pitch_offset = 5.0;                   // body pitch angle for inclines (deg)
-float force_angle_offset = 10.0;                 // additional angle for "digging in" effect (deg)
+float body_pitch_offset = 5.0;                   // body pitch angle for inclines (deg); incr as incline incr
+float force_angle_offset = 5.0;                  // additional angle for "digging in" effect (deg)
 
 bool is_front_leg_motor[] = {true, true, true, true, false, false, false, false};
 
@@ -322,6 +321,8 @@ void loop() {
         }
     }
 }
+
+
 
 
 
